@@ -1,152 +1,205 @@
 // IMPORTS
-const path = require("path");
-const fs = require("fs");
-const pm = require("picomatch");
-const { JSDOM } = require("jsdom");
-const walk = require("./utils/walk");
-const hashFile = require("./utils/hashFile");
-const resolveFile = require("./utils/resolveFile");
+const path = require('path')
+const fs = require('fs')
+const pm = require('picomatch')
+const { JSDOM } = require('jsdom')
+const walk = require('./utils/walk')
+const hashFile = require('./utils/hashFile')
+const resolveFile = require('./utils/resolveFile')
 // END IMPORTS
 
-const PREFIX = "Eleventy-Plugin-Page-Assets";
-const LOG_PREFIX = `[\x1b[34m${PREFIX}\x1b[0m]`;
+const PREFIX = 'Eleventy-Plugin-Page-Assets'
+const LOG_PREFIX = `[\x1b[34m${PREFIX}\x1b[0m]`
 
 const pluginOptions = {
-  mode: "parse", // directory|parse
-  postsMatching: "*.md",
-  assetsMatching: "*.png|*.jpg|*.gif",
-  
-  recursive: false, // only mode:directory
+    mode: 'parse', // directory|parse
+    postsMatching: '*.md',
+    assetsMatching: '*.png|*.jpg|*.gif',
 
-  hashAssets: true, // only mode:parse
-  hashingAlg: 'sha1', // only mode:parse
-  hashingDigest: 'hex', // only mode:parse
+    recursive: false, // only mode:directory
 
-  addIntegrityAttribute: true,
-};
+    hashAssets: true, // only mode:parse
+    hashingAlg: 'sha1', // only mode:parse
+    hashingDigest: 'hex', // only mode:parse
 
-const isRelative = (url) => !/^https?:/.test(url);
+    addIntegrityAttribute: true
+}
+
+const isRelative = (url) => !/^https?:/.test(url)
 
 async function transformParser(content, outputPath) {
-  const template = this;
-  if (outputPath && outputPath.endsWith(".html")) {
-    const inputPath = template.inputPath;
+    const template = this
+    if (outputPath && outputPath.endsWith('.html')) {
+        const inputPath = template.inputPath
 
-    if (
-      pm.isMatch(inputPath, pluginOptions.postsMatching, { contains: true })
-    ) {
-      const templateDir = path.dirname(template.inputPath);
-      const outputDir = path.dirname(outputPath);
+        if (
+            pm.isMatch(inputPath, pluginOptions.postsMatching, {
+                contains: true
+            })
+        ) {
+            const templateDir = path.dirname(template.inputPath)
+            const outputDir = path.dirname(outputPath)
 
-        // parse
-        const dom = new JSDOM(content);
-        const elms = [...dom.window.document.querySelectorAll("img")]; //TODO: handle different tags
+            // parse
+            const dom = new JSDOM(content)
+            const elms = [...dom.window.document.querySelectorAll('img')] //TODO: handle different tags
 
-        console.log(LOG_PREFIX, `Found ${elms.length} assets in ${outputPath} from template ${inputPath}`);
-        await Promise.all(elms.map(async (img) => {
+            console.log(
+                LOG_PREFIX,
+                `Found ${elms.length} assets in ${outputPath} from template ${inputPath}`
+            )
+            await Promise.all(
+                elms.map(async (img) => {
+                    const src = img.getAttribute('src')
+                    if (
+                        isRelative(src) &&
+                        pm.isMatch(src, pluginOptions.assetsMatching, {
+                            contains: true
+                        })
+                    ) {
+                        const assetPath = path.join(templateDir, src)
+                        const assetSubdir = path.relative(
+                            templateDir,
+                            path.dirname(assetPath)
+                        )
+                        const assetBasename = path.basename(assetPath)
 
-          const src = img.getAttribute("src");
-          if (isRelative(src) && pm.isMatch(src, pluginOptions.assetsMatching, { contains: true })) {
+                        let destDir = path.join(outputDir, assetSubdir)
+                        let destPath = path.join(destDir, assetBasename)
+                        let destPathRelativeToPage = path.join(
+                            './',
+                            assetSubdir,
+                            assetBasename
+                        )
 
-            const assetPath = path.join(templateDir, src);
-            const assetSubdir = path.relative(templateDir, path.dirname(assetPath));
-            const assetBasename = path.basename(assetPath);
+                        // resolve asset
+                        if (await resolveFile(assetPath)) {
+                            // calculate hash
+                            if (pluginOptions.hashAssets) {
+                                const hash = await hashFile(
+                                    assetPath,
+                                    pluginOptions.hashingAlg,
+                                    pluginOptions.hashingDigest
+                                )
+                                if (pluginOptions.addIntegrityAttribute)
+                                    img.setAttribute(
+                                        'integrity',
+                                        `${pluginOptions.hashingAlg}-${hash}`
+                                    )
 
-            let destDir = path.join(outputDir, assetSubdir);
-            let destPath = path.join(destDir, assetBasename);
-            let destPathRelativeToPage = path.join('./', assetSubdir, assetBasename);
+                                // rewrite paths
+                                destDir = outputDir // flatten subdir
+                                destPath = path.join(
+                                    destDir,
+                                    hash + path.extname(assetBasename)
+                                )
+                                destPathRelativeToPage =
+                                    './' +
+                                    path.join(
+                                        hash + path.extname(assetBasename)
+                                    )
+                                img.setAttribute('src', destPathRelativeToPage)
+                            }
 
-            // resolve asset
-            if (await resolveFile(assetPath)) {
+                            console.log(
+                                LOG_PREFIX,
+                                `Writing ./${destPath} from ./${assetPath}`
+                            )
+                            fs.mkdirSync(destDir, { recursive: true })
+                            await fs.promises.copyFile(assetPath, destPath)
+                        } else {
+                            throw new Error(
+                                `${LOG_PREFIX} Cannot resolve asset "${src}" in "${outputPath}" from template "${inputPath}"!`
+                            )
+                        }
+                    }
+                })
+            )
 
-              // calculate hash
-              if (pluginOptions.hashAssets) {
-                const hash = await hashFile(assetPath, pluginOptions.hashingAlg, pluginOptions.hashingDigest);
-                if (pluginOptions.addIntegrityAttribute)
-                  img.setAttribute("integrity", `${pluginOptions.hashingAlg}-${hash}`);
-
-                // rewrite paths
-                destDir = outputDir; // flatten subdir
-                destPath = path.join(destDir, hash + path.extname(assetBasename))
-                destPathRelativeToPage = './' + path.join(hash + path.extname(assetBasename))
-                img.setAttribute("src", destPathRelativeToPage);
-              }
-
-              console.log(LOG_PREFIX, `Writing ./${destPath} from ./${assetPath}`);
-              fs.mkdirSync(destDir, { recursive: true });
-              await fs.promises.copyFile(assetPath, destPath);
-
-            } else {
-              throw new Error(`${LOG_PREFIX} Cannot resolve asset "${src}" in "${outputPath}" from template "${inputPath}"!`);
-            }
-          }
-
-        }));
-        
-        console.log(LOG_PREFIX, `Processed ${elms.length} images in "${outputPath}" from template "${inputPath}"`);
-        content = dom.serialize();
+            console.log(
+                LOG_PREFIX,
+                `Processed ${elms.length} images in "${outputPath}" from template "${inputPath}"`
+            )
+            content = dom.serialize()
+        }
     }
-  }
-  return content;
+    return content
 }
 
 async function transformDirectoryWalker(content, outputPath) {
-  const template = this;
-  if (outputPath && outputPath.endsWith(".html")) {
-    const inputPath = template.inputPath;
+    const template = this
+    if (outputPath && outputPath.endsWith('.html')) {
+        const inputPath = template.inputPath
 
-    if (
-      pm.isMatch(inputPath, pluginOptions.postsMatching, { contains: true })
-    ) {
-      const templateDir = path.dirname(template.inputPath);
-      const outputDir = path.dirname(outputPath);
+        if (
+            pm.isMatch(inputPath, pluginOptions.postsMatching, {
+                contains: true
+            })
+        ) {
+            const templateDir = path.dirname(template.inputPath)
+            const outputDir = path.dirname(outputPath)
 
-      let assets = [];
-      if (pluginOptions.recursive) {
-        for await (const file of walk(templateDir)) {
-          assets.push(file);
+            let assets = []
+            if (pluginOptions.recursive) {
+                for await (const file of walk(templateDir)) {
+                    assets.push(file)
+                }
+            } else {
+                assets = await fs.promises.readdir(templateDir)
+                assets = assets.map((f) => path.join(templateDir, f))
+            }
+            assets = assets.filter((file) =>
+                pm.isMatch(file, pluginOptions.assetsMatching, {
+                    contains: true
+                })
+            )
+
+            if (assets.length) {
+                for (file of assets) {
+                    const relativeSubDir = path.relative(
+                        templateDir,
+                        path.dirname(file)
+                    )
+                    const basename = path.basename(file)
+
+                    const from = file
+                    const destDir = path.join(outputDir, relativeSubDir)
+                    const dest = path.join(destDir, basename)
+
+                    fs.mkdirSync(destDir, { recursive: true })
+                    await fs.promises.copyFile(from, dest)
+                }
+                console.log(
+                    LOG_PREFIX,
+                    `Moved ${assets.length} assets to post folders.`
+                )
+            }
         }
-      } else {
-        assets = await fs.promises.readdir(templateDir);
-        assets = assets.map((f) => path.join(templateDir, f));
-      }
-      assets = assets.filter(file => pm.isMatch(file, pluginOptions.assetsMatching, { contains: true }));
-
-      if (assets.length) {
-        for (file of assets) {
-          const relativeSubDir = path.relative(templateDir, path.dirname(file));
-          const basename = path.basename(file);
-
-          const from = file;
-          const destDir = path.join(outputDir, relativeSubDir);
-          const dest = path.join(destDir, basename);
-
-          console.log(LOG_PREFIX, `Writing ./${dest} from ./${from}`);
-          fs.mkdirSync(destDir, { recursive: true });
-          await fs.promises.copyFile(from, dest);
-        }
-      }
-
     }
-  }
-  return content;
+    return content
 }
-
 
 // export plugin
 module.exports = {
-  configFunction(eleventyConfig, options) {
-    Object.assign(pluginOptions, options);
+    configFunction(eleventyConfig, options) {
+        Object.assign(pluginOptions, options)
 
-    if (pluginOptions.mode === "parse") {
-      // html parser
-      eleventyConfig.addTransform(`${PREFIX}-transform-parser`, transformParser);
-    } else if (pluginOptions.mode === "directory") {
-      // directory traverse
-      eleventyConfig.addTransform(`${PREFIX}-transform-traverse`, transformDirectoryWalker);
+        if (pluginOptions.mode === 'parse') {
+            // html parser
+            eleventyConfig.addTransform(
+                `${PREFIX}-transform-parser`,
+                transformParser
+            )
+        } else if (pluginOptions.mode === 'directory') {
+            // directory traverse
+            eleventyConfig.addTransform(
+                `${PREFIX}-transform-traverse`,
+                transformDirectoryWalker
+            )
+        } else {
+            throw new Error(
+                `${LOG_PREFIX} Invalid mode! (${options.eleventyConfig}) Allowed modes: parse|directory`
+            )
+        }
     }
-    else {
-      throw new Error(`${LOG_PREFIX} Invalid mode! (${options.eleventyConfig}) Allowed modes: parse|directory`);
-    }
-  },
-};
+}
