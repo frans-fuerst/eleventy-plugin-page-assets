@@ -72,7 +72,7 @@ async function transformParser(content, outputPath) {
                 img.setAttribute("src", destPathRelativeToPage);
               }
 
-              console.log(LOG_PREFIX, `Writting ./${destPath} from ./${assetPath}`);
+              console.log(LOG_PREFIX, `Writing ./${destPath} from ./${assetPath}`);
               fs.mkdirSync(destDir, { recursive: true });
               await fs.promises.copyFile(assetPath, destPath);
 
