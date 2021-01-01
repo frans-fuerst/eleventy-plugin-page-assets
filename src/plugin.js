@@ -171,7 +171,7 @@ async function transformDirectoryWalker(content, outputPath) {
                 }
                 console.log(
                     LOG_PREFIX,
-                    `Moved ${assets.length} assets to ${destDir}`
+                    `Moved ${assets.length} assets to ${templateDir}`
                 )
             }
         }
