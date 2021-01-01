@@ -22,7 +22,8 @@ const pluginOptions = {
     hashingAlg: 'sha1', // only mode:parse
     hashingDigest: 'hex', // only mode:parse
 
-    addIntegrityAttribute: true
+    addIntegrityAttribute: true,
+    silent: false
 }
 
 const isRelative = (url) => !/^https?:/.test(url)
@@ -116,10 +117,12 @@ async function transformParser(content, outputPath) {
                 })
             )
 
-            console.log(
-                LOG_PREFIX,
-                `Processed ${elms.length} images in "${outputPath}" from template "${inputPath}"`
-            )
+            if (!pluginOptions.silent) {
+                console.log(
+                    LOG_PREFIX,
+                    `Processed ${elms.length} images in "${outputPath}" from template "${inputPath}"`
+                )
+            }
             content = dom.serialize()
         }
     }
@@ -167,12 +170,11 @@ async function transformDirectoryWalker(content, outputPath) {
                     const dest = path.join(destDir, basename)
 
                     fs.mkdirSync(destDir, { recursive: true })
+                    if (!pluginOptions.silent) {
+                        console.log(LOG_PREFIX, `Moved ${from} to ${dest}`)
+                    }
                     await fs.promises.copyFile(from, dest)
                 }
-                console.log(
-                    LOG_PREFIX,
-                    `Moved ${assets.length} assets to ${templateDir}`
-                )
             }
         }
     }
