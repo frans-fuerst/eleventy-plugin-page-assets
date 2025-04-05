@@ -1,6 +1,6 @@
 // IMPORTS
 const path = require('path')
-const fs = require('fs')
+const { promises: fs } = require('fs');
 const pm = require('picomatch')
 const { JSDOM } = require('jsdom')
 const walk = require('./utils/walk')
@@ -106,8 +106,8 @@ async function transformParser(content, outputPath) {
                                 LOG_PREFIX,
                                 `Writing ./${destPath} from ./${assetPath}`
                             )
-                            fs.mkdirSync(destDir, { recursive: true })
-                            await fs.promises.copyFile(assetPath, destPath)
+                            await fs.mkdir(destDir, { recursive: true })
+                            await fs.copyFile(assetPath, destPath)
                         } else {
                             throw new Error(
                                 `${LOG_PREFIX} Cannot resolve asset "${src}" in "${outputPath}" from template "${inputPath}"!`
@@ -169,11 +169,11 @@ async function transformDirectoryWalker(content, outputPath) {
                     const destDir = path.join(outputDir, relativeSubDir)
                     const dest = path.join(destDir, basename)
 
-                    fs.mkdirSync(destDir, { recursive: true })
+                    await fs.mkdir(destDir, { recursive: true })
                     if (!pluginOptions.silent) {
                         console.log(LOG_PREFIX, `Moved ${from} to ${dest}`)
                     }
-                    await fs.promises.copyFile(from, dest)
+                    await fs.copyFile(from, dest)
                 }
             }
         }
