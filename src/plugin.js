@@ -22,11 +22,32 @@ const pluginOptions = {
     hashingAlg: 'sha1', // only mode:parse
     hashingDigest: 'hex', // only mode:parse
 
+    forceCopy: false, // if `true` copy files even if modification dates and sizes match
+
     addIntegrityAttribute: true,
     silent: false
 }
 
 const isRelative = (url) => !/^https?:/.test(url)
+
+async function copyFileIfNeeded(src, dest) {
+    const src_stat = await fs.stat(src);
+    if (!pluginOptions.forceCopy) {
+        try {
+            const dest_stat = await fs.stat(dest);
+            if (+dest_stat.mtime == +src_stat.mtime && dest_stat.size == src_stat.size) {
+                return;
+            }
+            console.log(LOG_PREFIX, `${src} has changed!`);
+        } catch {} // `dest` does not exist
+    }
+    if (!pluginOptions.silent) {
+        console.log(LOG_PREFIX, `Copy ${src} to ${dest}..`);
+    }
+    await fs.copyFile(src, dest);
+    // `copyFile` does not copy attributes, so we have to copy time attributes
+    await fs.utimes(dest, src_stat.atime, src_stat.mtime);
+}
 
 async function transformParser(content, outputPath) {
     const template = this
@@ -102,12 +123,8 @@ async function transformParser(content, outputPath) {
                                 img.setAttribute('src', destPathRelativeToPage)
                             }
 
-                            console.log(
-                                LOG_PREFIX,
-                                `Writing ./${destPath} from ./${assetPath}`
-                            )
                             await fs.mkdir(destDir, { recursive: true })
-                            await fs.copyFile(assetPath, destPath)
+                            await copyFileIfNeeded(assetPath, destPath);
                         } else {
                             throw new Error(
                                 `${LOG_PREFIX} Cannot resolve asset "${src}" in "${outputPath}" from template "${inputPath}"!`
@@ -170,10 +187,7 @@ async function transformDirectoryWalker(content, outputPath) {
                     const dest = path.join(destDir, basename)
 
                     await fs.mkdir(destDir, { recursive: true })
-                    if (!pluginOptions.silent) {
-                        console.log(LOG_PREFIX, `Moved ${from} to ${dest}`)
-                    }
-                    await fs.copyFile(from, dest)
+                    await copyFileIfNeeded(from, dest);
                 }
             }
         }
